@@ -16,3 +16,4 @@ Helped process ligands for UniDock Virtual Screening; I used Zinc and needed to 
   5a. Run "Text.sh" to produce a text file with all your ligands
   5b. Run "VS.sh" to conduct your virtual screening
 6. You can use "Check.sh" to check on the status of your Virtual Screening
+7. After your run has concluded, run "low.py" to find the lowest energy ligand (best target).
