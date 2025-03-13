@@ -8,12 +8,8 @@ Helped process ligands for UniDock Virtual Screening; I used Zinc and needed to 
 4. Have Parallel installed (via pip)
 
 # How to use
-1. After extracting your libraries, put them all into a single directory.
-2. Run "oBabelExpander.sh" Script to expand all the .sdf files into individual files.
-3. Run "Sanitize.sh" Script to generate 3D coordinates for each SDF Ligand (parallels accelerated)
-4. Run "Tools.sh" to format all the ligands into the proper format
-5. You may now run UniDock, but if you have a large # of ligands,
-  5a. Run "Text.sh" to produce a text file with all your ligands
-  5b. Run "VS.sh" to conduct your virtual screening
-6. You can use "Check.sh" to check on the status of your Virtual Screening
-7. After your run has concluded, run "low.py" to find the lowest energy ligand (best target).
+1. Run the shell script with ./virtual_screening.sh
+2. You can add -h to see required input options
+
+# How it works
+Speeds up processing time, and if it finds a bad file it skips it, preventing the job from crashing.
