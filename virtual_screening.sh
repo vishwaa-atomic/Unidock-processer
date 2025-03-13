@@ -114,8 +114,8 @@ log_message "Processing ligands with OpenBabel..."
 total_input_files=$(find . -name "*.sdf" -type f | wc -l)
 log_message "Found $total_input_files input SDF files"
 
-# Create a temporary directory for processing
-mkdir -p "$SCRIPT_DIR/temp_processing"
+# Create required directories
+mkdir -p "$SCRIPT_DIR/processed_ligands"
 
 # Process each file individually with better error handling
 find . -name "*.sdf" -type f | while read -r file; do
@@ -144,6 +144,9 @@ find "$SCRIPT_DIR/processed_ligands" -maxdepth 1 -name "*.sdf" > "$SCRIPT_DIR/li
 remaining_files=$(wc -l < "$SCRIPT_DIR/ligand.txt")
 log_message "Starting sanitization of $remaining_files files"
 
+# Create prepared_ligands directory if it doesn't exist
+mkdir -p "$SCRIPT_DIR/prepared_ligands"
+
 # Split into batches of 100 files
 split -l 100 "$SCRIPT_DIR/ligand.txt" "$SCRIPT_DIR/batch_"
 
@@ -151,8 +154,16 @@ split -l 100 "$SCRIPT_DIR/ligand.txt" "$SCRIPT_DIR/batch_"
 for batch in "$SCRIPT_DIR/batch_"*; do
     if [ -f "$batch" ]; then
         log_message "Processing batch: $batch"
+        # Count files in this batch
+        batch_count=$(wc -l < "$batch")
+        log_message "Batch contains $batch_count files"
+        
         # Process this batch and capture output
         output=$(timeout 10s unidocktools ligandprep -i "$batch" -sd "$SCRIPT_DIR/prepared_ligands" 2>&1)
+        
+        # Log the output for debugging
+        log_message "Ligandprep output:"
+        echo "$output" >> "$LOG_FILE"
         
         # Check for errors in this batch
         if [ $? -ne 0 ]; then
@@ -173,14 +184,19 @@ for batch in "$SCRIPT_DIR/batch_"*; do
     fi
 done
 
-# Create prepared_ligands directory if it doesn't exist
-mkdir -p "$SCRIPT_DIR/prepared_ligands"
+# Count files after sanitization
+sanitized_files=$(find "$SCRIPT_DIR/prepared_ligands" -name "*.sdf" -type f | wc -l)
+log_message "After sanitization: $sanitized_files files remaining"
 
 # Step 6: Create ligand index file
 log_message "Creating ligand index file..."
 find "$SCRIPT_DIR/prepared_ligands" -name "*.sdf" -type f > "$SCRIPT_DIR/ligand_index.txt"
 total_ligands=$(wc -l < "$SCRIPT_DIR/ligand_index.txt")
 log_message "Found $total_ligands sanitized ligands to process"
+
+# Verify the ligand index file
+log_message "Contents of ligand_index.txt:"
+cat "$SCRIPT_DIR/ligand_index.txt" >> "$LOG_FILE"
 
 # Step 7: Monitor progress
 log_message "Setting up progress monitoring..."
@@ -299,4 +315,32 @@ else:
         print("No valid energy values found in any files")
 EOF
 
-log_message "Virtual screening process completed!" 
+log_message "Virtual screening process completed!"
+
+# Step 8: Organize files into finished folder
+log_message "Organizing files into finished folder..."
+FINISHED_DIR="$SCRIPT_DIR/finished"
+mkdir -p "$FINISHED_DIR"
+
+# Enable extended globbing
+shopt -s extglob
+
+# Move everything except the specified files to finished folder
+for item in !(virtual_screening.sh|"ZINC-downloader-3D-sdf.gz (1).curl"|vs-rep.c1.pdb|docking_output|virtual_screening.log); do
+    if [ -e "$item" ]; then
+        mv "$item" "$FINISHED_DIR/"
+        log_message "Moved $item to finished folder"
+    fi
+done
+
+# Disable extended globbing
+shopt -u extglob
+
+# Final directory structure message
+log_message "Final directory structure:"
+log_message "- $SCRIPT_DIR/virtual_screening.sh (main script)"
+log_message "- $SCRIPT_DIR/virtual_screening.log (log file)"
+log_message "- $SCRIPT_DIR/docking_output/ (docking results)"
+log_message "- $SCRIPT_DIR/vs-rep.c1.pdb (input protein)"
+log_message "- $SCRIPT_DIR/ZINC-downloader-3D-sdf.gz (1).curl (input curl file)"
+log_message "- $FINISHED_DIR/ (all other files and directories)" 
