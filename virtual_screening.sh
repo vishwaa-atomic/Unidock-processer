@@ -110,23 +110,79 @@ find . -name "*.gz" -exec gunzip {} \;
 
 # Step 4: Process ligands with OpenBabel
 log_message "Processing ligands with OpenBabel..."
-find . -name "*.sdf" -type f -print0 | xargs -0 -n 100 -P 12 -I {} sh -c '
-    file="$1"
-    output="processed_ligands/ligand_$(basename "$1" .sdf).sdf"
-    if timeout 5s obabel "$file" -O "$output" --gen3D 2>/dev/null; then
-        echo "Processed: $file" >> '"$LOG_FILE"'
+# First, count total input files
+total_input_files=$(find . -name "*.sdf" -type f | wc -l)
+log_message "Found $total_input_files input SDF files"
+
+# Create a temporary directory for processing
+mkdir -p "$SCRIPT_DIR/temp_processing"
+
+# Process each file individually with better error handling
+find . -name "*.sdf" -type f | while read -r file; do
+    output_file="$SCRIPT_DIR/processed_ligands/ligand_$(basename "$file" .sdf).sdf"
+    log_message "Processing file: $file"
+    
+    # Try to process with OpenBabel
+    if timeout 10s obabel "$file" -O "$output_file" --gen3D 2>> "$LOG_FILE"; then
+        log_message "Successfully processed: $file"
     else
-        echo "Skipped (timeout): $file" >> '"$LOG_FILE"'
+        log_message "Failed to process: $file"
+        # Try to get more information about the file
+        log_message "File size: $(stat -f%z "$file" 2>/dev/null || stat -c%s "$file") bytes"
+        log_message "File permissions: $(ls -l "$file" 2>/dev/null)"
     fi
-' sh {}
+done
 
-# Step 5: Create ligand index file
+# Count processed files
+processed_files=$(find "$SCRIPT_DIR/processed_ligands" -name "*.sdf" -type f | wc -l)
+log_message "Successfully processed $processed_files out of $total_input_files files"
+
+# Step 5: Sanitize ligands
+log_message "Sanitizing ligands..."
+# Create list of SDF files
+find "$SCRIPT_DIR/processed_ligands" -maxdepth 1 -name "*.sdf" > "$SCRIPT_DIR/ligand.txt"
+remaining_files=$(wc -l < "$SCRIPT_DIR/ligand.txt")
+log_message "Starting sanitization of $remaining_files files"
+
+# Split into batches of 100 files
+split -l 100 "$SCRIPT_DIR/ligand.txt" "$SCRIPT_DIR/batch_"
+
+# Process each batch
+for batch in "$SCRIPT_DIR/batch_"*; do
+    if [ -f "$batch" ]; then
+        log_message "Processing batch: $batch"
+        # Process this batch and capture output
+        output=$(timeout 10s unidocktools ligandprep -i "$batch" -sd "$SCRIPT_DIR/prepared_ligands" 2>&1)
+        
+        # Check for errors in this batch
+        if [ $? -ne 0 ]; then
+            # Extract problematic files from WARNING messages
+            error_files=$(echo "$output" | grep "WARNING.*ligand.*is invalid mol" | sed -n 's/.*ligand \(.*\) idx.*/\1/p')
+            
+            # Remove each problematic file
+            while IFS= read -r file; do
+                if [ ! -z "$file" ] && [ -f "$file" ]; then
+                    rm "$file"
+                    log_message "Removed invalid file: $(basename "$file")"
+                fi
+            done <<< "$error_files"
+        fi
+        
+        # Clean up batch file
+        rm "$batch"
+    fi
+done
+
+# Create prepared_ligands directory if it doesn't exist
+mkdir -p "$SCRIPT_DIR/prepared_ligands"
+
+# Step 6: Create ligand index file
 log_message "Creating ligand index file..."
-find "$SCRIPT_DIR/processed_ligands" -name "*.sdf" -type f > "$SCRIPT_DIR/ligand_index.txt"
+find "$SCRIPT_DIR/prepared_ligands" -name "*.sdf" -type f > "$SCRIPT_DIR/ligand_index.txt"
 total_ligands=$(wc -l < "$SCRIPT_DIR/ligand_index.txt")
-log_message "Found $total_ligands ligands to process"
+log_message "Found $total_ligands sanitized ligands to process"
 
-# Step 6: Monitor progress
+# Step 7: Monitor progress
 log_message "Setting up progress monitoring..."
 cat > "$SCRIPT_DIR/monitor_progress.py" << 'EOF'
 import os
